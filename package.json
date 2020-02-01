@@ -1,0 +1,29 @@
+{
+  "name": "remark-wiki-metadata",
+  "version": "0.0.1",
+  "description": "Read a Markdown file and generate metadata for creating a highly interconnected personal wiki",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm test && npm run-script build",
+    "test": "ts-node src/*.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "github.com:forbesmyester/remark-wiki-metadata.git"
+  },
+  "keywords": [
+    "remarkjs",
+    "markdown",
+    "wiki",
+    "metadata"
+  ],
+  "author": "Matt Forrester <matt.forrester@keyboard-writes-code.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^13.7.0",
+    "ts-node": "^8.6.2",
+    "typescript": "^3.7.5",
+    "vfile": "^4.0.2"
+  }
+}
