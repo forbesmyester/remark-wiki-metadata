@@ -1,6 +1,6 @@
 {
   "name": "remark-wiki-metadata",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Read a Markdown file and generate metadata for creating a highly interconnected personal wiki",
   "main": "dist/index.js",
   "scripts": {
@@ -8,6 +8,7 @@
     "prepublishOnly": "npm test && npm run-script build",
     "test": "ts-node src/*.ts"
   },
+  "typings": "./dist/index.d.ts",
   "repository": {
     "type": "git",
     "url": "github.com:forbesmyester/remark-wiki-metadata.git"
