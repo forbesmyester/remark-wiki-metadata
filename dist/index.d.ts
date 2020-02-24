@@ -4,15 +4,16 @@ interface Node {
     children?: Node[];
     value?: string;
 }
-interface OutputLinkTypeChildren {
-    text: string;
-    count: number;
-    type: "text";
-}
 declare enum NodeType {
+    Root = "root",
     Link = "link",
     Header = "header",
     OrphanLink = "orphanLink"
+}
+interface OutputLinkTypeChildren {
+    text: string[];
+    header: string[];
+    type: "description";
 }
 interface OutputLinkType {
     type: NodeType.Link;
@@ -27,14 +28,16 @@ interface OutputOrphanLinkRef {
 interface OutputHeader {
     type: NodeType.Header;
     text: string[];
-    depth: number;
 }
-export declare function collectRemarkWikiMetadata(_options: any): (tree: Node, vfile: VFile) => {
-    type: string;
-    children: (OutputLinkType | OutputOrphanLinkRef | OutputHeader)[];
-};
+declare type WMTransformerChild = (OutputOrphanLinkRef | OutputLinkType | OutputHeader)[];
+interface WMTransformed {
+    type: NodeType.Root;
+    filename: string;
+    children: WMTransformerChild;
+}
+export declare function collectRemarkWikiMetadata(_options: any): (tree: Node, vfile: VFile) => WMTransformed;
 interface HasCompiler {
-    Compiler: (tree: Node) => void;
+    Compiler: (tree: WMTransformed) => void;
 }
 export declare function writeRemarkWikiMetadata(this: HasCompiler, _config: any): void;
 export {};

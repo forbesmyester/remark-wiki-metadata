@@ -4,21 +4,25 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const assert_1 = __importDefault(require("assert"));
+const path_1 = require("path");
+const markdown_header_to_filename_1 = __importDefault(require("markdown-header-to-filename"));
 const fsPromises = require('fs').promises;
 function collectData(item) {
     let links = [];
     let linkRefs = [];
     let linkDefs = [];
     let headers = [];
+    let currentHeader = [];
     function record(item) {
         if (item.type == 'heading') {
-            headers.push(item);
+            currentHeader = headersReducer(currentHeader, item);
+            headers.push(currentHeader);
         }
         if (item.type == 'link') {
-            links.push(item);
+            links.push({ ...item, header: currentHeader });
         }
         if (item.type == 'linkReference') {
-            linkRefs.push(item);
+            linkRefs.push({ ...item, header: currentHeader });
         }
         if (item.type == 'definition') {
             linkDefs.push(item);
@@ -30,15 +34,15 @@ function collectData(item) {
     let ar = [item];
     while (ar.length) {
         const items = record(ar.shift());
-        ar = [...ar, ...items];
+        ar = [...items, ...ar];
     }
     return { links, linkRefs, linkDefs, headers };
 }
-function getWords(item) {
+function getChildWords(item) {
     let words = [];
     function record(item) {
-        if (item.value) {
-            words.push(item.value);
+        if (item.value && item.value.trim().length) {
+            words.push(item.value.trim());
         }
         return item.children && item.children.length ?
             item.children :
@@ -49,167 +53,296 @@ function getWords(item) {
         const items = record(ar.shift());
         ar = [...ar, ...items];
     }
-    return words.join("");
+    return words.join(" ");
 }
 function processData({ headers, links, linkRefs, linkDefs }) {
+    // links.forEach((l) => console.log("L: ", l));
+    // linkRefs.forEach((l) => console.log("R: ", l));
+    // linkDefs.forEach((l) => console.log("D: ", l));
+    // headers.forEach((l) => console.log("H: ", l));
     function normalizeUrl(url) {
         return url.replace(/^\.\//, '');
     }
-    function sanitizeWord(w) {
-        return w.toLowerCase().trim();
+    function uniq(ar) {
+        return ar.reduce((acc, item) => {
+            return acc.indexOf(item) == -1 ?
+                [...acc, item] :
+                acc;
+        }, []);
     }
-    function pushInto(m, url, text) {
+    function pushInto(m, url, text, header) {
         const u = normalizeUrl(url);
         if (!m.hasOwnProperty(u)) {
-            m[u] = {};
+            m[u] = [];
         }
-        if (text.length) {
-            m[u][text] = (m[u][text] || 0) + 1;
-        }
+        m[u].push({
+            text: uniq(text).map((t) => t.trim()).filter((t) => t.length),
+            header
+        });
     }
     let lnks = {};
     let orphanLinks = {};
-    let identifierToUrl = new Map();
+    let identifierToDef = new Map();
     links.forEach((item) => {
-        item.title ? pushInto(lnks, item.url, item.title) : 0;
-        pushInto(lnks, item.url, getWords(item));
+        let words = [];
+        item.title && words.push(item.title);
+        if (item.children && item.children.length) {
+            words.push(getChildWords(item));
+        }
+        pushInto(lnks, item.url, words, item.header.map(({ text }) => text));
     });
     linkDefs.forEach((ld) => {
-        identifierToUrl.set(ld.identifier, ld.url);
-        ld.title ? pushInto(lnks, ld.url, ld.title) : 0;
+        identifierToDef.set(ld.identifier, { url: ld.url, title: ld.title ? ld.title : '' });
     });
-    linkRefs.forEach((lr) => {
-        const url = identifierToUrl.get(lr.identifier);
-        if (url) {
-            pushInto(lnks, url, lr.label);
-            return pushInto(lnks, url, getWords(lr));
+    linkRefs.forEach((item) => {
+        let words = [];
+        const def = identifierToDef.get(item.identifier);
+        if (def) {
+            if (item.children && item.children.length) {
+                words.push(getChildWords(item));
+            }
+            item.label && words.push(item.label);
+            def.title && words.push(def.title);
+            return pushInto(lnks, def.url, words, item.header.map(({ text }) => text));
         }
-        pushInto(orphanLinks, lr.identifier, lr.label);
-        pushInto(orphanLinks, lr.identifier, getWords(lr));
+        words = [getChildWords(item)];
+        item.label && words.push(item.label);
+        pushInto(orphanLinks, item.identifier, words, item.header.map(({ text }) => text));
     });
     return {
         links: lnks,
         orphanLinkRefs: orphanLinks,
-        headers: headers.map((h) => ({ depth: h.depth, text: getWords(h) }))
+        headers,
     };
 }
+assert_1.default.deepEqual(processData({
+    headers: [],
+    links: [
+        {
+            type: "link",
+            title: "Hello",
+            url: "Greeting",
+            value: "Hello",
+            header: [{ depth: 1, text: "h1" }]
+        }
+    ],
+    linkRefs: [],
+    linkDefs: []
+}), {
+    headers: [],
+    links: {
+        Greeting: [
+            { text: ["Hello"], header: ["h1"] }
+        ]
+    },
+    orphanLinkRefs: {}
+});
 var NodeType;
 (function (NodeType) {
+    NodeType["Root"] = "root";
     NodeType["Link"] = "link";
     NodeType["Header"] = "header";
     NodeType["OrphanLink"] = "orphanLink";
 })(NodeType || (NodeType = {}));
-function outputLinkType(k, linkType) {
+function outputLinkType(knownAs, linkType) {
     let parents = [];
     for (const k in linkType) {
         if (!linkType.hasOwnProperty(k)) {
             continue;
         }
         let children = [];
-        for (const kk in linkType[k] || {}) {
-            children.push({ type: "text", text: kk || "", count: linkType[k][kk] || 0 });
+        linkType[k].map((lt) => {
+            children.push({ type: "description", ...lt });
+        });
+        if (knownAs == NodeType.Link) {
+            parents.push({ type: NodeType.Link, href: k, children });
         }
-        parents.push({ type: NodeType.Link, href: k, children });
-    }
-    return parents;
-}
-function outputOrphanLinkRefs(orphanLinkRefs) {
-    let parents = [];
-    for (const k in orphanLinkRefs) {
-        if (!orphanLinkRefs.hasOwnProperty(k)) {
-            continue;
+        else {
+            parents.push({ type: NodeType.OrphanLink, identifier: k, children });
         }
-        let children = [];
-        for (const kk in orphanLinkRefs[k] || {}) {
-            children.push({ type: "text", text: kk || "", count: orphanLinkRefs[k][kk] || 0 });
-        }
-        parents.push({ type: NodeType.OrphanLink, identifier: k, children });
     }
     return parents;
 }
 function organizeHeaders(headers) {
-    let d = [];
-    let h = [];
-    function isLessEqual(depth) {
-        return d.length == 0 ?
-            false :
-            depth <= d[d.length - 1];
-    }
-    return headers.map((header) => {
-        while (isLessEqual(header.depth)) {
-            h.pop();
-            d.pop();
-        }
-        h = [...h, header.text];
-        d = [...d, header.depth];
-        return {
-            depth: header.depth,
-            type: NodeType.Header,
-            text: [...h]
-        };
-    });
+    const texts = headers.map((hdrs) => hdrs.map(({ text }) => text));
+    return texts.map((s) => ({ text: s, type: NodeType.Header }));
+    //     let d: number[] = [];
+    //     let h: string[] = [];
+    //     function isLessEqual(depth: number) {
+    //         return d.length == 0 ?
+    //             false :
+    //             depth <= d[d.length - 1];
+    //     }
+    //     return headers.map(
+    //         (header) => {
+    //             while (isLessEqual(header.depth)) {
+    //                     h.pop();
+    //                     d.pop();
+    //             }
+    //             h = [...h, header.text];
+    //             d = [...d, header.depth];
+    //             return {
+    //                 depth: header.depth,
+    //                 type: NodeType.Header,
+    //                 text: [...h]
+    //             };
+    //         }
+    //     );
 }
-assert_1.default.deepEqual([
-    { type: "header", depth: 1, text: ["Main 1"] },
-    { type: "header", depth: 2, text: ["Main 1", "Sub 1 1"] },
-    { type: "header", depth: 1, text: ["Main 2"] },
-    { type: "header", depth: 2, text: ["Main 2", "Sub 2 1"] },
-    { type: "header", depth: 4, text: ["Main 2", "Sub 2 1", "Sub Sub 2 1 1 1"] },
-    { type: "header", depth: 3, text: ["Main 2", "Sub 2 1", "Sub Sub 2 1 2"] }
-], organizeHeaders([
-    { depth: 1, text: "Main 1" },
-    { depth: 2, text: "Sub 1 1" },
-    { depth: 1, text: "Main 2" },
-    { depth: 2, text: "Sub 2 1" },
-    { depth: 4, text: "Sub Sub 2 1 1 1" },
-    { depth: 3, text: "Sub Sub 2 1 2" },
-]));
+// assert.deepEqual(
+//     organizeHeaders([
+//         {depth: 1, text: "Main 1"},
+//         {depth: 2, text: "Sub 1 1"},
+//         {depth: 1, text: "Main 2"},
+//         {depth: 2, text: "Sub 2 1"},
+//         {depth: 4, text: "Sub Sub 2 1 1 1"},
+//         {depth: 3, text: "Sub Sub 2 1 2"},
+//     ]),
+//     [
+//         {type: "header", depth: 1, text: ["Main 1"] },
+//         {type: "header", depth: 2, text: ["Main 1", "Sub 1 1"]},
+//         {type: "header", depth: 1, text: ["Main 2"] },
+//         {type: "header", depth: 2, text: ["Main 2", "Sub 2 1"]},
+//         {type: "header", depth: 4, text: ["Main 2", "Sub 2 1", "Sub Sub 2 1 1 1"] },
+//         {type: "header", depth: 3, text: ["Main 2", "Sub 2 1", "Sub Sub 2 1 2"]}
+//     ],
+// )
+function headersReducer(acc, header) {
+    let newAcc = [...acc];
+    function isLessEqual(depth) {
+        return newAcc.length == 0 ?
+            false :
+            depth <= newAcc[newAcc.length - 1].depth;
+    }
+    while (isLessEqual(header.depth)) {
+        newAcc.pop();
+    }
+    let text = getChildWords(header);
+    return [
+        ...newAcc,
+        { depth: header.depth, text }
+    ];
+}
+assert_1.default.deepEqual(headersReducer([], { type: "A", value: "Main", depth: 1 }), [{ text: "Main", depth: 1 }]);
+assert_1.default.deepEqual(headersReducer([{ text: "Main", depth: 1 }], { type: "A", value: "Sub", depth: 2 }), [
+    { text: "Main", depth: 1 },
+    { text: "Sub", depth: 2 }
+]);
+assert_1.default.deepEqual(headersReducer([
+    { text: "Main", depth: 1 },
+    { text: "Sub A", depth: 2 }
+], { type: "A", value: "Sub B", depth: 2 }), [{ text: "Main", depth: 1 }, { text: "Sub B", depth: 2 }]);
 function collectRemarkWikiMetadata(_options) {
     return transformer;
-    function headerMapper(headers) {
-        return {
-            type: "header",
-            text: headers,
-        };
-    }
     function transformer(tree, vfile) {
         const r = processData(collectData(tree));
         // const theFile = path.resolve(vfile.path as string);
         let children = [];
         children = children
-            .concat(outputLinkType("links", r.links))
+            .concat(outputLinkType(NodeType.Link, r.links))
             .concat(organizeHeaders(r.headers))
-            .concat(outputOrphanLinkRefs(r.orphanLinkRefs));
-        return { type: "root", children };
+            .concat(outputLinkType(NodeType.OrphanLink, r.orphanLinkRefs));
+        // console.log("VFILE: ", vfile.path)
+        return { type: NodeType.Root, children, filename: path_1.basename(vfile.path) };
     }
 }
 exports.collectRemarkWikiMetadata = collectRemarkWikiMetadata;
+function getHashes(n) {
+    let s = '';
+    for (let i = 0; i < n; i++) {
+        s = s + ':';
+    }
+    return s;
+}
+function serializeHeader(header) {
+    let depth = 1;
+    return header.reduce((acc, h) => {
+        acc = acc.length ? (acc + ' ' + getHashes(depth++)) : (acc + getHashes(depth++));
+        acc = acc + '' + h;
+        // console.log(">>>", acc);
+        return acc;
+    }, '');
+}
+function linkReducer(acc, item) {
+    // interface CT { text: string; header: string[]; }
+    // type CTHeader = string;
+    // type CTString = string;
+    // type CT = Map<CTHeader, CTString>;
+    const toAdd = item.children.reduce((childAcc, child) => {
+        const childToAdd = child.text.map((txts) => {
+            return item.type + ' ' + serializeHeader(child.header.concat([txts].concat(item.href)));
+        });
+        return [...childAcc, ...childToAdd];
+    }, []);
+    return [
+        ...acc,
+        ...toAdd.map((ta) => ta)
+    ];
+}
 function writeRemarkWikiMetadata(_config) {
     this.Compiler = compiler;
+    function orphanToOutput(o) {
+        return {
+            href: o.identifier,
+            type: NodeType.OrphanLink,
+            children: o.children,
+        };
+    }
+    function removeExtension(filename) {
+        return filename.replace(/\.[^\.]+$/, '');
+    }
+    function headerToOutput(o) {
+        return {
+            href: o.text[o.text.length - 1],
+            type: NodeType.Header,
+            children: [{
+                    type: 'description',
+                    header: [],
+                    text: o.text.slice(0, o.text.length - 1)
+                }]
+        };
+    }
+    function getNewRootHeader(filename, rootHeader) {
+        if (!rootHeader) {
+            rootHeader = removeExtension(filename);
+        }
+        if (markdown_header_to_filename_1.default(rootHeader) != removeExtension(filename)) {
+            rootHeader = removeExtension(filename);
+        }
+        return rootHeader;
+    }
+    function headerHeaderMapper(filename, header) {
+        let h = header.text.slice(1);
+        h.unshift(getNewRootHeader(filename, header.text[0]));
+        return { ...header, text: h };
+    }
+    function linkHeaderMapper(filename, output) {
+        const children = output.children.map((child) => {
+            let h = child.header.slice(1);
+            h.unshift(getNewRootHeader(filename, child.header[0]));
+            return { ...child, header: h };
+        });
+        return { ...output, children };
+    }
     function compiler(tree) {
         const children = tree.children;
-        const childLinks = ((children || [])
+        const links = ((children || [])
             .filter(({ type }) => type == NodeType.Link));
-        const childHeaders = ((children || [])
+        const headers = ((children || [])
             .filter(({ type }) => type == NodeType.Header));
-        const childOrphanLinks = ((children || [])
+        const orphanLinkRefs = ((children || [])
             .filter(({ type }) => type == NodeType.OrphanLink));
-        const links = childLinks.map(({ href, children }) => {
-            return {
-                href,
-                text: children.map(({ text, count }) => ({ text, count }))
-            };
-        });
-        const orphanLinkRefs = childOrphanLinks.map(({ identifier, children }) => {
-            return {
-                identifier,
-                text: children.map(({ text, count }) => ({ text, count }))
-            };
-        });
-        const headers = childHeaders.map(({ text, depth }) => {
-            return { text, depth };
-        });
-        return JSON.stringify({ links, orphanLinkRefs, headers });
+        let toReduce = [
+            ...headers.map(headerHeaderMapper.bind(null, tree.filename)).map(headerToOutput),
+            ...links.map(linkHeaderMapper.bind(null, tree.filename)),
+            ...orphanLinkRefs.map(orphanToOutput).map(linkHeaderMapper.bind(null, tree.filename))
+        ];
+        // toReduce.forEach((tr) => console.log('J: ', JSON.stringify(tr)));
+        // links.forEach((tr) => console.log('L: ', JSON.stringify(tr)));
+        // headers.forEach((tr) => console.log('H: ', JSON.stringify(tr)));
+        // console.log(toReduce.reduce(linkReducer, [] as string[]));
+        return toReduce.reduce(linkReducer, []).join("\n");
+        // return JSON.stringify(tree);
     }
 }
 exports.writeRemarkWikiMetadata = writeRemarkWikiMetadata;

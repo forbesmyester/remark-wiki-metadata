@@ -23,6 +23,7 @@
   "license": "MIT",
   "dependencies": {
     "@types/node": "^13.7.0",
+    "markdown-header-to-filename": "0.0.0",
     "ts-node": "^8.6.2",
     "typescript": "^3.7.5",
     "vfile": "^4.0.2"
