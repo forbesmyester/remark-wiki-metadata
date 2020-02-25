@@ -5,10 +5,11 @@ interface Node {
     value?: string;
 }
 declare enum NodeType {
+    WarningHeaderToFilename = "bad_head",
     Root = "root",
     Link = "link",
-    Header = "header",
-    OrphanLink = "orphanLink"
+    Header = "head",
+    OrphanLink = "bad_link"
 }
 interface OutputLinkTypeChildren {
     text: string[];

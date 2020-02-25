@@ -139,10 +139,11 @@ assert_1.default.deepEqual(processData({
 });
 var NodeType;
 (function (NodeType) {
+    NodeType["WarningHeaderToFilename"] = "bad_head";
     NodeType["Root"] = "root";
     NodeType["Link"] = "link";
-    NodeType["Header"] = "header";
-    NodeType["OrphanLink"] = "orphanLink";
+    NodeType["Header"] = "head";
+    NodeType["OrphanLink"] = "bad_link";
 })(NodeType || (NodeType = {}));
 function outputLinkType(knownAs, linkType) {
     let parents = [];
@@ -302,24 +303,55 @@ function writeRemarkWikiMetadata(_config) {
                 }]
         };
     }
+    // function getNewRootHeader(filename: string, rootHeader: string): string {
+    //     if (!rootHeader) { rootHeader = removeExtension(filename); }
+    //     if (mdh2fn(rootHeader) != removeExtension(filename)) {
+    //         rootHeader = removeExtension(filename)
+    //     }
+    //     return rootHeader;
+    // }
     function getNewRootHeader(filename, rootHeader) {
+        let changed = false;
         if (!rootHeader) {
             rootHeader = removeExtension(filename);
+            changed = true;
         }
         if (markdown_header_to_filename_1.default(rootHeader) != removeExtension(filename)) {
+            changed = true;
             rootHeader = removeExtension(filename);
         }
-        return rootHeader;
+        return [changed, rootHeader];
     }
-    function headerHeaderMapper(filename, header) {
+    function headerHeaderReducer(filename, acc, header) {
         let h = header.text.slice(1);
-        h.unshift(getNewRootHeader(filename, header.text[0]));
-        return { ...header, text: h };
+        const [changed, newHeader] = getNewRootHeader(filename, header.text[0]);
+        if (changed) {
+            const warning = {
+                type: NodeType.WarningHeaderToFilename,
+                href: newHeader,
+                children: [{ text: [header.text[0]], header: [], type: 'description' }]
+            };
+            acc = [...acc, warning];
+        }
+        h.unshift(newHeader);
+        const o = { ...header, text: h };
+        return [...acc,
+            {
+                href: o.text[o.text.length - 1],
+                type: NodeType.Header,
+                children: [{
+                        type: 'description',
+                        header: [],
+                        text: o.text.slice(0, o.text.length - 1)
+                    }]
+            }
+        ];
     }
     function linkHeaderMapper(filename, output) {
         const children = output.children.map((child) => {
             let h = child.header.slice(1);
-            h.unshift(getNewRootHeader(filename, child.header[0]));
+            const [_, newHeader] = getNewRootHeader(filename, child.header[0]);
+            h.unshift(newHeader);
             return { ...child, header: h };
         });
         return { ...output, children };
@@ -333,16 +365,20 @@ function writeRemarkWikiMetadata(_config) {
         const orphanLinkRefs = ((children || [])
             .filter(({ type }) => type == NodeType.OrphanLink));
         let toReduce = [
-            ...headers.map(headerHeaderMapper.bind(null, tree.filename)).map(headerToOutput),
+            ...headers.reduce(headerHeaderReducer.bind(null, tree.filename), []),
             ...links.map(linkHeaderMapper.bind(null, tree.filename)),
             ...orphanLinkRefs.map(orphanToOutput).map(linkHeaderMapper.bind(null, tree.filename))
         ];
-        // toReduce.forEach((tr) => console.log('J: ', JSON.stringify(tr)));
-        // links.forEach((tr) => console.log('L: ', JSON.stringify(tr)));
-        // headers.forEach((tr) => console.log('H: ', JSON.stringify(tr)));
-        // console.log(toReduce.reduce(linkReducer, [] as string[]));
-        return toReduce.reduce(linkReducer, []).join("\n");
-        // return JSON.stringify(tree);
+        const warnings = toReduce
+            .filter((tr) => tr.type == NodeType.WarningHeaderToFilename)
+            .map((warn) => {
+            const text = warn.children.map((c) => c.text.join(", ")).join(",, ");
+            return `WARNING: FILE: ${tree.filename}: BAD HEADING: ${text}`;
+        });
+        warnings.forEach((warn) => { process.stderr.write(warn + "\n"); });
+        return toReduce
+            .filter((tr) => tr.type != NodeType.WarningHeaderToFilename)
+            .reduce(linkReducer, []).join("\n");
     }
 }
 exports.writeRemarkWikiMetadata = writeRemarkWikiMetadata;
