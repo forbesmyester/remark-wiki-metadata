@@ -1,6 +1,6 @@
 {
   "name": "remark-wiki-metadata",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Read a Markdown file and generate metadata for creating a highly interconnected personal wiki",
   "main": "dist/index.js",
   "scripts": {

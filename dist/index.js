@@ -7,12 +7,12 @@ const assert_1 = __importDefault(require("assert"));
 const path_1 = require("path");
 const markdown_header_to_filename_1 = __importDefault(require("markdown-header-to-filename"));
 const fsPromises = require('fs').promises;
-function collectData(item) {
+function collectData(defaultHeader, item) {
     let links = [];
     let linkRefs = [];
     let linkDefs = [];
     let headers = [];
-    let currentHeader = [];
+    let currentHeader = [{ depth: 1, text: defaultHeader }];
     function record(item) {
         if (item.type == 'heading') {
             currentHeader = headersReducer(currentHeader, item);
@@ -236,8 +236,7 @@ assert_1.default.deepEqual(headersReducer([
 function collectRemarkWikiMetadata(_options) {
     return transformer;
     function transformer(tree, vfile) {
-        const r = processData(collectData(tree));
-        // const theFile = path.resolve(vfile.path as string);
+        const r = processData(collectData(removeFilenameExtension(path_1.basename(vfile.path)), tree));
         let children = [];
         children = children
             .concat(outputLinkType(NodeType.Link, r.links))
@@ -280,6 +279,9 @@ function linkReducer(acc, item) {
         ...toAdd.map((ta) => ta)
     ];
 }
+function removeFilenameExtension(filename) {
+    return filename.replace(/\.[^\.]+$/, '');
+}
 function writeRemarkWikiMetadata(_config) {
     this.Compiler = compiler;
     function orphanToOutput(o) {
@@ -288,9 +290,6 @@ function writeRemarkWikiMetadata(_config) {
             type: NodeType.OrphanLink,
             children: o.children,
         };
-    }
-    function removeExtension(filename) {
-        return filename.replace(/\.[^\.]+$/, '');
     }
     function headerToOutput(o) {
         return {
@@ -304,21 +303,21 @@ function writeRemarkWikiMetadata(_config) {
         };
     }
     // function getNewRootHeader(filename: string, rootHeader: string): string {
-    //     if (!rootHeader) { rootHeader = removeExtension(filename); }
-    //     if (mdh2fn(rootHeader) != removeExtension(filename)) {
-    //         rootHeader = removeExtension(filename)
+    //     if (!rootHeader) { rootHeader = removeFilenameExtension(filename); }
+    //     if (mdh2fn(rootHeader) != removeFilenameExtension(filename)) {
+    //         rootHeader = removeFilenameExtension(filename)
     //     }
     //     return rootHeader;
     // }
     function getNewRootHeader(filename, rootHeader) {
         let changed = false;
         if (!rootHeader) {
-            rootHeader = removeExtension(filename);
+            rootHeader = removeFilenameExtension(filename);
             changed = true;
         }
-        if (markdown_header_to_filename_1.default(rootHeader) != removeExtension(filename)) {
+        if (markdown_header_to_filename_1.default(rootHeader) != removeFilenameExtension(filename)) {
             changed = true;
-            rootHeader = removeExtension(filename);
+            rootHeader = removeFilenameExtension(filename);
         }
         return [changed, rootHeader];
     }

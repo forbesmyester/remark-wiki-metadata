@@ -39,13 +39,13 @@ interface CollectedData {
     headers: HeaderType[][];
 }
 
-function collectData(item: Node): CollectedData {
+function collectData(defaultHeader: string, item: Node): CollectedData {
 
     let links: LinkWithHeader[] = [];
     let linkRefs: LinkRefWithHeader[] = [];
     let linkDefs: LinkDef[] = [];
     let headers: HeaderType[][] = [];
-    let currentHeader : HeaderType[] = [];
+    let currentHeader : HeaderType[] = [{depth: 1, text:defaultHeader}];
 
     function record(item: Link | LinkDef | LinkRef | Heading) {
         if (item.type == 'heading') {
@@ -111,6 +111,7 @@ interface ProcessedData {
     orphanLinkRefs: LinkType;
     headers: HeaderType[][];
 }
+
 
 function processData({headers, links, linkRefs, linkDefs}: CollectedData): ProcessedData {
 
@@ -398,8 +399,11 @@ export function collectRemarkWikiMetadata(_options: any) {
     return transformer;
 
     function transformer(tree: Node, vfile: VFile): WMTransformed {
-        const r = processData(collectData(tree));
-        // const theFile = path.resolve(vfile.path as string);
+
+        const r = processData(collectData(
+            removeFilenameExtension(basename(<string>vfile.path)),
+            tree
+        ));
 
         let children: (OutputOrphanLinkRef | OutputLinkType | OutputHeader)[] = [];
 
@@ -469,6 +473,12 @@ function linkReducer(acc: string[], item: Output): string[] {
 
 }
 
+
+function removeFilenameExtension(filename: string) {
+    return filename.replace(/\.[^\.]+$/, '')
+}
+
+
 export function writeRemarkWikiMetadata(this: HasCompiler, _config: any) {
 
     this.Compiler = compiler;
@@ -479,11 +489,6 @@ export function writeRemarkWikiMetadata(this: HasCompiler, _config: any) {
             type: NodeType.OrphanLink,
             children: o.children,
         }
-    }
-
-
-    function removeExtension(filename: string) {
-        return filename.replace(/\.[^\.]+$/, '')
     }
 
 
@@ -501,9 +506,9 @@ export function writeRemarkWikiMetadata(this: HasCompiler, _config: any) {
 
 
     // function getNewRootHeader(filename: string, rootHeader: string): string {
-    //     if (!rootHeader) { rootHeader = removeExtension(filename); }
-    //     if (mdh2fn(rootHeader) != removeExtension(filename)) {
-    //         rootHeader = removeExtension(filename)
+    //     if (!rootHeader) { rootHeader = removeFilenameExtension(filename); }
+    //     if (mdh2fn(rootHeader) != removeFilenameExtension(filename)) {
+    //         rootHeader = removeFilenameExtension(filename)
     //     }
     //     return rootHeader;
     // }
@@ -511,12 +516,12 @@ export function writeRemarkWikiMetadata(this: HasCompiler, _config: any) {
     function getNewRootHeader(filename: string, rootHeader: string): [boolean, string] {
         let changed = false;
         if (!rootHeader) {
-            rootHeader = removeExtension(filename);
+            rootHeader = removeFilenameExtension(filename);
             changed = true;
         }
-        if (mdh2fn(rootHeader) != removeExtension(filename)) {
+        if (mdh2fn(rootHeader) != removeFilenameExtension(filename)) {
             changed = true;
-            rootHeader = removeExtension(filename)
+            rootHeader = removeFilenameExtension(filename)
         }
         return [changed, rootHeader];
     }
